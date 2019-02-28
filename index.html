@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Lotes de Degas vendidos en Christie's</title>
+  <!-- Import Vega 4 & Vega-Lite 3 (does not have to be from CDN) -->
+  <script src="https://cdn.jsdelivr.net/npm/vega@4.4.0/build/vega.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vega-lite@3.0.0-rc12/build/vega-lite.js"></script>
+  <!-- Import vega-embed -->
+  <script src="https://cdn.jsdelivr.net/npm/vega-embed@3.29.1/build/vega-embed.js"></script>
+  <!-- Import datatable -->
+  <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+  <script src="https://cdn.datatables.net/1.10.19/js/jquery.dataTables.min.js"></script>
+  <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/1.10.19/css/jquery.dataTables.min.css">
+  <!-- Responsive -->
+  <script src="https://cdn.datatables.net/responsive/2.2.3/js/dataTables.responsive.min.js"></script>
+  <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/responsive/2.2.3/css/responsive.dataTables.min.css">
+  <style>
+body {
+  font-size: 13px;
+  font-family: "Helvetica Neue",Helvetica,Arial,sans-serif;
+}
+
+h1 {
+  font-size: 18px;
+  text-align: center;
+}
+
+div.container { max-width: 1200px; }
+#datos_wrapper { padding-top: 10px; }
+
+p.menu { text-align: center; }
+
+#graphs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.not-visible { visibility: hidden;}
+
+hr {
+  border: 0;
+  height: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+footer {
+  padding: 10px 0;
+  max-width: 500px;
+  margin: 0 auto;
+  line-height: 1.2;
+}
+  </style>
+</head>
+<body>
+
+  <h1>Lotes de Degas vendidos en Christie's (2007-2019)</h1>
+  <p class="menu">
+    Elige una categoría: 
+    <select id="category">
+      <option value="location">Sede</option>
+      <option value="general_technique">Técnica</option>
+      <option value="theme">Tema</option>
+      <option value="signature">Tipo de firma</option>
+    </select>
+  </p>
+  <div id="graphs">
+    <div id="lines"></div>
+    <div id="bars"></div>
+  </div>
+
+  <table id="datos" class="display compact nowrap not-visible" style="width:100%">
+    <thead>
+      <tr>
+        <th>date</th>
+        <th>production_date</th>
+        <th>location</th>
+        <th>price</th>
+        <th>estimate_min</th>
+        <th>estimate_max</th>
+        <th>signature</th>
+        <th>theme</th>
+        <th>general_technique</th>
+        <th>width</th>
+        <th>height</th>
+        <th>technique</th>
+        <th>support</th>
+        <th>title</th>
+        <th>lot</th>
+        <th>url</th>
+      </tr>
+    </thead>
+    <tfoot>
+      <tr>
+        <th>date</th>
+        <th>production_date</th>
+        <th>location</th>
+        <th>price</th>
+        <th>estimate_min</th>
+        <th>estimate_max</th>
+        <th>signature</th>
+        <th>theme</th>
+        <th>general_technique</th>
+        <th>width</th>
+        <th>height</th>
+        <th>technique</th>
+        <th>support</th>
+        <th>title</th>
+        <th>lot</th>
+        <th>url</th>
+      </tr>
+    </tfoot>
+  </table>
+
+  <hr>
+  <footer>
+    <p>Los datos completos se pueden encontrar en descargar <a href="" download>aquí</a>.</p>
+    <p class="explicacion">En la siguiente <a href="/analisis_degas.html" target="_blank">página</a> se realiza una exploración de los datos de las ventas de Degas más exhaustiva. Las gráficas se realizaron con la aplicación <a href="https://www.rstudio.com/" target="_blank">RStudio</a> y el conjunto de paquetes <a href="https://www.tidyverse.org/" target="_blank">Tidyverse</a>. En el repositiorio de github de esta <a href="https://github.com/jblanper/degas_en_christies" target="_blank">página</a> se pueden encontrar los scripts de R con los que se analizaron los datos.</p>
+    <p>Recopilación de datos, análisis y gráficas: José Blanco Perales. Herramientas utilizadas: <a href="https://vega.github.io/vega-lite/" target="_blank">Vega Lite</a>,  <a href="https://datatables.net/">DataTables</a> y <a href="https://www.r-project.org/" target="_blank">R</a>.</p>
+    <p>
+    <a rel="license" href="http://creativecommons.org/licenses/by-nc/4.0/" style="float: left" target="_blank"><img alt="Licencia Creative Commons" style="border-width:0; padding-right: 7px" src="https://i.creativecommons.org/l/by-nc/4.0/88x31.png" /></a> Esta obra está bajo una <a rel="license" href="http://creativecommons.org/licenses/by-nc/4.0/" target="_blank">Licencia Creative Commons Atribución-NoComercial 4.0 Internacional</a>.
+    </p>
+  </footer>
+
+<script type="text/javascript">
+  // options
+  var lineGraphWidth = 400;
+  var lineGraphHeight = 170;
+  var barGraphWidth = 350;
+  var barGraphHeight = 170;
+
+  var embedOptions = {
+    "renderer": "svg",
+    "actions": {
+      "export": true,
+      "source": false,
+      "compiled": false,
+      "editor": false
+    },
+    "i18n": {
+      "SVG_ACTION": "Guardar como SVG",
+      "PNG_ACTION": "Guardar como PNG"
+    },
+    "config": {
+      "axis": {
+        "domain": false,
+        "ticks": false,
+        "labelFlush": false,
+        "grid": false,
+        "labelPadding": 10,
+        "labelFontSize": 12,
+        "labelColor": "#666",
+        "titleFontSize": 12,
+        "titleFontWeight": "normal",
+        "titleAlign": "left",
+        "titleColor": "#666",
+      },
+      "view": { "stroke": null }
+    }
+  };
+
+  var specLines = {
+    "$schema": "https://vega.github.io/schema/vega-lite/v3.json",
+    "data": {"name": "degas"},
+    "transform": [
+      {
+        "calculate": "datetime(round(datum.production_date / 5) * 5, 0, 1)",
+        "as": "production_date"
+      }
+    ],
+    "vconcat": [
+      {
+        "width": lineGraphWidth,
+        "height": lineGraphHeight,
+        "mark": { "type": "line" },
+        "encoding": {
+          "y": {
+            "axis": {
+              "title": "Ventas anuales (€)",
+              "format": "~s",
+            },
+            "aggregate": "sum",
+            "field": "price",
+            "type": "quantitative"
+          },
+          "color": {
+            "field": "location",
+            "type": "nominal",
+          },
+          "x": {
+            "axis": {"title": null, "tickCount": 6},
+            "timeUnit": "year",
+            "field": "date",
+            "type": "temporal"
+          },
+        }
+      },
+      {
+        "width": lineGraphWidth,
+        "height": lineGraphHeight,
+        "mark": "line",
+        "encoding": {
+          "y": {
+            "axis": {"title": "Lotes vendidos"},
+            "aggregate": "count",
+            "field": "*",
+            "type": "quantitative"
+          },
+          "color": {
+            "field": "location",
+            "type": "nominal",
+          },
+          "x": {
+            "axis": {"title": null, "tickCount": 6},
+            "timeUnit": "year",
+            "field": "date",
+            "type": "temporal"
+          }
+        }
+      },
+      {
+        "width": lineGraphWidth,
+        "height": lineGraphHeight,
+        "mark": "line",
+        "encoding": {
+          "y": {
+            "axis": {
+              "title": "Ventas totales según año de producción (€)",
+              "format": "~s"
+            },
+            "aggregate": "sum",
+            "field": "price",
+            "type": "quantitative"
+          },
+          "color": {
+            "field": "location",
+            "type": "nominal",
+          },
+          "x": {
+            "axis": {"title": null, "tickCount": 6},
+            "field": "production_date",
+            "type": "temporal",
+            "timeUnit": "year"
+          }
+        }
+      } 
+    ],
+    "config": {
+      "line": {"point": true },
+      "legend": {
+        "orient": "left",
+        "labelFontSize": 12,
+        "labelOffset": 10,
+        "rowPadding": 3,
+        "labelColor": "#666",
+        "title": null
+      },
+      "axisY": {
+        "grid": true,
+        "titleAngle": 0,
+        "titleY": -5
+      },
+    }
+  };
+
+  var specBars = {
+    "$schema": "https://vega.github.io/schema/vega-lite/v3.json",
+    "data": {"name": "degas"},
+    "transform": [
+      {
+        "aggregate": [
+          {"op": "sum", "field": "price", "as": "Suma de las ventas"},
+          {"op": "median", "field": "price", "as": "Mediana de las ventas"},
+          {"op": "count", "field": "*", "as": "Lotes vendidos"}
+        ],
+        "groupby": ["location"]
+      }
+    ],
+    "repeat": {"row": ["Suma de las ventas", "Mediana de las ventas", "Lotes vendidos"]},
+    "spec": {
+      "width": barGraphWidth,
+      "height": barGraphHeight,
+      "mark": "bar",
+      "encoding": {
+        "y": {
+          "axis": {"title": ""},
+          "field": "location",
+          "type": "nominal",
+          "sort": {"op": "sum", "field": "Suma de las ventas"}
+        },
+        "x": {
+          "field": {"repeat": "row"},
+          "type": "quantitative",
+          "axis": {
+            "zindex": 1,
+            "tickCount": 6,
+            "format": "~s",
+            "grid": true,
+            "gridColor": "white",
+            "gridWidth": 1.5,
+            "titleX": 0,
+            "titleY": -185
+          },
+        }
+      }
+    }
+  };
+
+  fetch('data/degas.json')
+    .then(res => res.json())
+    .then(j => {
+      // table
+      $('#datos').DataTable({
+        //searching: false,
+        pageLength: 20,
+        responsive: true,
+        data: j,
+        columns: [
+          { data: 'date', title: 'fecha de venta'},
+          { data: 'production_date', title: 'fecha de prod.' },
+          { data: 'location', title: 'sede'},
+          { data: 'price', title: 'precio' },
+          { data: 'estimate_min', title: 'estimación min.' },
+          { data: 'estimate_max', title: 'estimación max.' },
+          { data: 'signature', title: 'tipo de firma' },
+          { data: 'theme', title: 'tema' },
+          { data: 'general_technique', title: 'técnica general' },
+          { data: 'width', title: 'anchura' },
+          { data: 'height', title: 'altura' },
+          { data: 'technique', title: 'técnica' },
+          { data: 'support', title: 'soporte' },
+          { data: 'title', title: 'título'},
+          { data: 'lot' },
+          { data: 'url',
+            render: function(data, type, row, meta) {
+              if (type == 'display') {
+                data = '<a href="' + data + '" target="_blank">Enlace</a>';
+              }
+              return data;
+            }
+          },
+       ]
+      });
+      document.querySelector('table').classList.remove('not-visible');
+
+      specLines.data.values = j;
+      specBars.data.values = j;
+
+      vegaEmbed('#lines', specLines, embedOptions).catch(console.error);
+      vegaEmbed('#bars', specBars, embedOptions).catch(console.error);
+
+      var select = document.querySelector('#category');
+      select.addEventListener('change', e => {
+        specLines.vconcat.forEach((_, i) => {
+          specLines.vconcat[i].encoding.color.field = e.target.value;
+        });
+
+        specBars.transform[0].groupby[0] = e.target.value;
+        specBars.spec.encoding.y.field = e.target.value;
+
+        vegaEmbed('#lines', specLines, embedOptions).catch(console.error);
+        vegaEmbed('#bars', specBars, embedOptions).catch(console.error);
+      });
+    });
+</script>
+</body>
+</html>

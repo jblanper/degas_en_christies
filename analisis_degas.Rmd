@@ -1,0 +1,709 @@
+---
+title: "Ventas de Degas en Christie's"
+author: "José Blanco Perales"
+#date: "January 30, 2019"
+output: html_document
+---
+
+<style type="text/css">
+body {
+  margin: 40px auto;
+  max-width: 650px;
+  line-height: 1.6;
+  font-size: 14px;
+  color: #444;
+  padding: 0 10px;
+}
+h1, h2, h3, h4 { line-height: 1.2; }
+h1 { font-size: 210%; }
+h2 { font-size: 140%; }
+h3, h4, h5 { font-size: 125%; }
+hr {
+  border: 0;
+  height: 0;
+  border-top: 1px solid rgba(0, 0, 0, 0.1);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.3);
+}
+</style>
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, out.width = "100%")
+```
+
+```{r include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(magrittr)
+library(viridis)
+library(ggrepel)
+library(knitr)
+
+theme_set(theme_minimal() + 
+            theme(panel.grid = element_blank(),
+                  axis.title.x = element_text(margin = margin(t = 15, r = 0, b = 0, l = 0), 
+                                              hjust = 0),
+                  axis.title.y = element_text(margin = margin(t = 0, r = 15, b = 0, l = 0), 
+                                              hjust = 0)))
+
+setwd("D:/programacion/r_scripts/christies_degas")
+
+# prepare data
+degas <- read_csv("clean/degas.csv") %>% 
+  select(-saleUrl) %>% 
+  filter(!is.na(price_EUR)) %>% 
+  mutate(prediction = factor(prediction, levels = c("menor", "correcta", "mayor")))
+```
+
+## Ventas entre 2007 y 2018 {.tabset}
+
+Los datos completos se pueden descargar <a href="/degas_en_christies/data/degas.csv" download>aquí</a>.
+
+### Datos generales
+
+#### Distribución de los precios
+
+```{r}
+#{r fig.asp=.50, fig.width=10}
+degas %>% 
+  ggplot(aes(price_EUR)) +
+  geom_histogram(aes(y = ..density..), bins = 20, fill = "grey") +
+  geom_density() +
+  geom_vline(aes(xintercept = mean(price_EUR, na.rm = T)),
+             linetype = "22", size = .8, color = "red") +
+  geom_vline(aes(xintercept = median(price_EUR, na.rm = T)),
+             linetype = "22", size = .8, color = "blue") +
+  annotate("text", x = median(degas$price_EUR, na.rm = T), 
+           xend = median(degas$price_EUR, na.rm = T),
+           y = .7, label = "Mediana", hjust = -.2, color = "blue") +
+  annotate("text", x = mean(degas$price_EUR, na.rm = T), xend = mean(degas$price_EUR, na.rm = T),
+           y = .7, label = "Media", hjust = -.2, color = "red") +
+  scale_x_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), trans = "log10") +
+  labs(y = NULL, x = "Precio (en €)", color = NULL) +
+  theme(axis.text.y = element_blank(), legend.position = "top")
+```
+
+#### Número de obras vendidas y suma de los precios por año
+
+```{r}
+# sales by year
+degas %>% 
+  mutate(date = round_date(date, unit = "years")) %>% 
+  group_by(date) %>% 
+  summarise(`número de subastas` = n(),
+            `ventas (mill. €)` = sum(price_EUR, na.rm = TRUE) * 1e-6) %>%
+  gather(variable, value, -date) %>% 
+  ggplot(aes(date, value)) +
+  geom_line(size = .8, color = "grey70") +
+  geom_point(size = 3, color = "grey70") +
+  annotate("segment", x = ymd("2017-01-01"), xend = ymd("2017-01-01"),
+           y = 0, yend = 65, linetype = "22", color = "red", size = 1) +
+  annotate("text", x = ymd("2017-01-01"), y = 63, label = "Centenario de la muerte",
+           hjust = 1.05, color = "red") +
+  facet_grid(variable ~ ., scales = "free") +
+  labs(x = NULL, y = NULL) +
+  theme(panel.border = element_rect(color = "grey", fill = NA))
+```
+
+#### % de las ventas de las obras de Degas en cada subasta
+
+```{r}
+# proporcion de obras vendidas de Degas en cada subasta
+degas %>% 
+  mutate(perc_of_sale = price_EUR / sale_price_EUR) %>% 
+  group_by(date) %>% 
+  summarise(total = sum(price_EUR), perc_of_sale = sum(perc_of_sale)) %>% 
+  ggplot(aes(date, perc_of_sale)) +
+  geom_segment(aes(x = date, xend = date, y = 0, yend = perc_of_sale), color = "grey") +
+  geom_point(aes(size = total, fill = total), shape = 21, color = "white", stroke = 1.1) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_size_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6),
+                        range = c(1, 15), breaks = seq(1e+6, 20e+6, 5e+6)) +
+  scale_fill_viridis(option = "plasma", labels = scales::unit_format(unit = "M", scale = 1e-6),
+                     breaks = seq(1e+6, 20e+6, 5e+6)) +
+  labs(x = NULL, y = NULL) +
+  guides(size = guide_legend(title = "Ventas de Degas (€)", title.position = "top"),
+         fill = guide_legend(title = "Ventas de Degas (€)", title.position = "top")) +
+  theme(legend.direction = "horizontal",
+        legend.position = c(.3, .65),
+        panel.grid.major.y = element_line(color = "grey90"))
+```
+
+### Por categorías {.tabset .tabset-pills}
+
+#### Técnica 
+
+##### Distribución del precio de las obras según la técnica
+
+```{r}
+# technique, distribution o prices
+degas %>% 
+  ggplot(aes(general_technique, price_EUR, fill = general_technique)) +
+  geom_violin(color = NA, alpha = .5, trim = FALSE) +
+  geom_boxplot(fill = NA, outlier.color = NA, varwidth = TRUE) +
+  geom_jitter(width = .2, height = 0) +
+  scale_x_discrete(labels = function(x) {str_wrap(x, 20)}) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), trans = "log10") +
+  labs(x = NULL, y = NULL) +
+  theme(legend.position = "none", panel.grid = element_blank()) +
+  coord_flip()
+```
+
+##### Distribución de los tamaños de las obras según la técnica
+
+```{r}
+# technique and size
+degas %>% 
+  ggplot(aes(general_technique, area, fill = general_technique)) +
+  geom_violin(color = NA, alpha = .5) +
+  geom_boxplot(fill = NA) +
+  geom_jitter(width = .2, height = 0) +
+  scale_x_discrete(labels = function(x) {str_wrap(x, 20)}) +
+  labs(x = NULL, y = NULL) +
+  theme(legend.position = "none", panel.grid = element_blank()) +
+  coord_flip()
+```
+
+##### Número de lotes y ventas por año según a técnica
+
+```{r}
+# technique by year
+degas %>%
+  mutate(date = round_date(date, unit = "years")) %>% 
+  group_by(date, general_technique) %>% 
+  summarise(`Número de lotes` = n(), 
+            `Ventas (en 1,000,000 €)` = sum(price_EUR, na.rm = TRUE) * 1e-6) %>% 
+  gather(variable, value, -date, -general_technique) %>% 
+  ggplot(aes(date, value, color = general_technique)) +
+  geom_line(size = .8) +
+  geom_point(size = 2.1) +
+  facet_grid(variable ~ ., scales = "free") +
+  scale_color_brewer(palette = "Set2") +
+  labs(x = NULL, y = NULL, color = NULL) +
+  theme(legend.position = c(.2, .9),
+        panel.border = element_rect(color = "grey", fill = NA))
+```
+
+#### Sede
+
+##### Distribución del precio de las obras según la sede
+
+```{r}
+# location, distribution o prices
+degas %>% 
+  filter(!str_detect(location, "Milan")) %>% 
+  ggplot(aes(location, price_EUR, fill = location)) +
+  geom_violin(color = NA, alpha = .5) +
+  geom_boxplot(fill = NA, outlier.color = NA, varwidth = TRUE) +
+  geom_jitter(width = .2, height = 0) +
+  scale_x_discrete(labels = function(x) {str_wrap(x, 20)}) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), trans = "log10") +
+  labs(x = NULL, y = NULL) +
+  theme(legend.position = "none", panel.grid = element_blank()) +
+  coord_flip()
+```
+
+##### Número de obras y ventas totales según la sede
+
+```{r}
+#Frecuencia por ciudad
+degas %>% 
+  group_by(location) %>% 
+  summarise(`número de subastas` = n(),
+            `ventas (mill. €)` = sum(price_EUR, na.rm = TRUE) * 1e-6) %>%
+  mutate(location = fct_reorder(location, `ventas (mill. €)`)) %>% 
+  gather(variable, value, -location) %>% 
+  ggplot(aes(location, value, fill = variable)) +
+  geom_col(show.legend = FALSE) +
+  facet_grid(variable ~ ., scales = "free") +
+  labs(x = NULL, y = NULL) +
+  theme(panel.ontop=TRUE, panel.background = element_rect(fill = NA, color = NA),
+        panel.grid.major.y = element_line(color = "white", size = 1.2))
+```
+
+##### Número de lotes y ventas por año según la sede
+
+```{r}
+#ciudad y año
+degas %>%
+  filter(!str_detect(location, "Milan")) %>% 
+  mutate(date = round_date(date, unit = "years")) %>% 
+  group_by(date, location) %>% 
+  summarise(`Número de lotes` = n(), 
+            `Ventas (en 1,000,000 €)` = sum(price_EUR, na.rm = TRUE) * 1e-6) %>% 
+  gather(variable, value, -date, -location) %>% 
+  ggplot(aes(date, value, color = location)) +
+  geom_line(size = .8) +
+  geom_point(size = 2.1) +
+  facet_grid(variable ~ ., scales = "free") +
+  labs(x = NULL, y = NULL, color = NULL) +
+  theme(legend.position = c(.2, .9),
+        panel.border = element_rect(color = "grey", fill = NA))
+```
+
+
+```{r}
+# subastas
+degas_by_sale <- degas %>% #count(sale_title, sale, date, location, sort = TRUE) %>% View()
+  group_by(sale_title, sale, date, location, sale_price_EUR) %>% 
+  summarise(n = n(), degas_total = sum(price_EUR)) %>% 
+  rowwise() %>% 
+  mutate(degas_perc = degas_total / sale_price_EUR)
+
+degas_by_sale %>% 
+  filter(!str_detect(location, "Milan")) %>% 
+  ggplot(aes(date, degas_total)) +
+  geom_segment(aes(x = date, xend = date, y = 0, yend = degas_total), color = "grey") +
+  geom_point(aes(size = n, color = n), shape = 16, alpha = .3) +
+  facet_wrap(~ location, nrow = 3) +#, scales = "free_y") +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), expand = c(.3, 0)) +
+  scale_color_gradient(low = "blue", high = "red", breaks = c(1, 2, 5, 10, 20, 40)) +
+  scale_size_continuous(breaks = c(1, 2, 5, 10, 20, 40), range = c(3, 13)) +
+  guides(size = guide_legend(title = "Número de obras", nrow = 1), 
+         color = guide_legend(title = "Número de obras", nrow = 1)) +
+  labs(x = NULL, y = "ventas de Degas (mil €)") +
+  theme(legend.position = "bottom",
+        panel.grid.major.y = element_line(color = "grey89", linetype = "55"))
+```
+
+##### Número de piezas vendidas por mes en cada sede
+
+Se ha omitido la única subasta de Milán y la subasta de París del 23 de marzo de 2017 en la que se vendieron muchas más piezas de las que se suelen vender de Degas.
+
+```{r}
+# months
+degas %>%
+  mutate(month = month(date)) %>%
+  filter(!(location == "Paris" & date == ymd("2017-03-23")), !str_detect(location, "Milan")) %>%
+  count(month, location) %>%
+  ggplot(aes(month, n, fill = location)) +
+  geom_col(position = position_dodge(preserve = "total")) +
+  #facet_wrap(~ location, nrow = 3) +
+  scale_x_continuous(labels = 1:12, breaks = 1:12, limits = c(1, 12)) +
+  scale_fill_brewer(type = "qual", palette = 1) +
+  labs(x = NULL, y = NULL, fill = NULL) +
+  theme(legend.position = "bottom")
+```
+
+#### Estimaciones
+
+##### Frecuencia de los tipos de estiamción
+
+```{r}
+# estimates, frequncies
+degas %>% 
+  count(prediction, general_technique) %>% 
+  ggplot(aes(prediction, n, fill = general_technique)) +
+  geom_col(position = "dodge") +
+  scale_fill_brewer(palette = "Paired") +
+  labs(x = NULL, y = NULL, fill = NULL) +
+  theme(legend.position = c(.7, .9),
+        panel.ontop=TRUE, panel.background = element_rect(fill = NA, color = NA),
+        panel.grid.major.y = element_line(color = "white", size = 1))
+```
+
+##### Distribución de los tipos de estimación
+
+```{r}
+# estimates, distribution
+degas %>% 
+  ggplot(aes(prediction, price_EUR)) +
+  geom_violin(aes(fill = prediction), color = NA, alpha = .5) +
+  geom_boxplot(alpha = 0) +
+  geom_jitter(height = 0, width = .2) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), 
+                     trans = "log10") +
+  labs(x = NULL, y = NULL, fill = NULL) +
+  theme(legend.position = "none", panel.grid = element_blank()) +
+  coord_flip()
+```
+
+##### Porcentaje de la diferencia entre la estimación y el precio final
+
+```{r}
+# distribución porcentual de la diferencia entre precio y estimación
+degas_predictions <- degas %>%  
+  filter(prediction != "correcta") %>% 
+  mutate(estimate_diff = if_else(prediction == "mayor",
+                                 estimate_min_EUR - price_EUR,
+                                 price_EUR - estimate_max_EUR),
+         estimate_diff_perc = if_else(prediction == "mayor",
+                                      (estimate_min_EUR - price_EUR) / estimate_min_EUR,
+                                      -(estimate_max_EUR - price_EUR) / estimate_max_EUR))
+
+degas_predictions %>% 
+  ggplot(aes(prediction, estimate_diff_perc)) +
+  geom_violin(aes(fill = prediction), color = NA, alpha = .5, trim = FALSE) +
+  geom_boxplot(fill = NA) +
+  geom_jitter(width = .2, height = 0) +
+  scale_y_continuous(labels = scales::percent_format(), trans = "log10") +
+  labs(x = NULL, y = NULL) +
+  theme(legend.position = "none", panel.grid = element_blank()) +
+  coord_flip()
+```
+
+##### Evoluciones de las estimaciones por año
+
+```{r}
+# estimaciones by year
+degas %>% 
+  mutate(date = round_date(date, unit = "years")) %>% 
+  count(date, prediction) %>% 
+  ggplot(aes(date, n, color = prediction)) +
+  geom_point() +
+  geom_line() +
+  geom_line(data = degas %>% mutate(date = round_date(date, unit = "years")) %>% count(date),
+            mapping =  aes(date, n, color = "todos los lotes"), linetype = "44", size = .8) +
+  labs(x = NULL, y = "Número de lotes", color = "Estimaciones") +
+  theme(legend.position = "bottom", 
+        panel.grid.major.y = element_line(color = "grey83", linetype = "44"))
+```
+
+#### Firma
+
+##### Distribución del precio final según el tipo de firma
+
+```{r}
+# signature, distribution
+degas %>%
+  mutate(signature = if_else(is.na(signature), "sin marca", signature)) %>% 
+  ggplot(aes(signature, price_EUR)) +
+  geom_violin(aes(fill = signature), color = NA, alpha = .5, trim = FALSE) +
+  geom_boxplot(fill = NA) +
+  geom_jitter(height = 0, width = .2) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), 
+                     trans = "log10") +
+  labs(x = NULL, y = NULL, fill = NULL) +
+  theme(legend.position = "none", panel.grid = element_blank()) +
+  coord_flip()
+```
+
+##### Frecuencia de las técnicas según el tipo de firma
+
+```{r}
+# technique, signature, frequency (number of lots, total sales)
+degas %>%
+  mutate(signature = if_else(is.na(signature), "sin marca", signature)) %>% 
+  group_by(general_technique, signature) %>% 
+  summarise(n = n(), total = sum(price_EUR)) %>% 
+  ggplot(aes(general_technique, n, color = signature, group = signature)) +
+  geom_line(size = 1) +
+  geom_point(aes(size = total)) +
+  geom_text(data = . %>% filter(str_detect(general_technique, "pastel")),
+            mapping = aes(x = general_technique, y = n, label = signature),
+            nudge_y = 6, nudge_x = -.02, hjust = "right", size = 4.5) +
+  scale_size_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+  guides(size = guide_legend(title = "Ventas (en 1000€)"), color = "none") +
+  labs(x = NULL, y = NULL) +
+  theme(legend.position = c(.35, .8), legend.background = element_rect(color = NA),
+        panel.grid.major.x = element_line(color = "grey83"),
+        panel.grid.major.y = element_line(color = "grey83", linetype = "44"))
+```
+
+```{r}
+degas %>%
+  group_by(signature, general_technique) %>% 
+  summarise(n = n(), total = sum(price_EUR, na.rm = TRUE)) %>%
+  ungroup() %>% 
+  mutate(signature = ifelse(is.na(signature), "ninguno", signature),
+         general_technique = ifelse(str_detect(general_technique, "resto"),
+                                    "resto", general_technique),
+         general_technique = factor(general_technique, levels = c("pastel", "resto", "óleo"))) %>% 
+  ggplot(aes(general_technique, total, color = signature, group = signature)) +
+  geom_line(size = 1, show.legend = FALSE) +
+  geom_point(aes(size = n)) +
+  geom_text(data = . %>% filter(general_technique == "óleo"),
+            mapping = aes(label = signature, x = general_technique, y = total),
+            nudge_x = .05, hjust = "left", size = 4.5) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+  guides(size = guide_legend(direction = "horizontal", title.position = "top"),
+         color = "none") +
+  labs(x = NULL, y = NULL, size = "Número de lotes") +
+  theme(panel.grid.major.x = element_line(color = "grey85"),
+        legend.position = c(.65, .8), 
+        legend.background = element_rect(fill = "white", color = NA),
+        panel.grid.major.y = element_line(color = "grey83", linetype = "44"))
+```
+
+#### Fecha de producción
+
+##### Ventas y número de obras según fecha de producción
+
+Las obras se agrupan en periodos de 5 años. El tamaño muestra la cantidad de obras vendidas. Las obras sin fecha de producción se muestran en la posición '0'.
+
+```{r}
+# production date
+degas %>%
+  mutate(production_date = if_else(is.na(production_date),
+                                   0, production_date - production_date %% 5),
+         production_date = fct_reorder(factor(production_date), production_date)) %>% 
+  group_by(production_date) %>% 
+  summarise(n = n(), total = sum(price_EUR)) %>% 
+  ggplot(aes(production_date, total, group = 1)) +
+  geom_line(color = "grey") +
+  geom_point(aes(size = n, color = n)) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+  scale_size_continuous(range = c(1, 8), breaks = c(1, 2, 5, 10, 20, 40)) +
+  scale_color_viridis(option = "plasma", breaks = c(1, 2, 5, 10, 20, 40)) +
+  labs(x = NULL, y = "Ventas (en 1000€)") +
+  guides(size = guide_legend(title.position = "top", title = "Número de lotes"), 
+         color = guide_legend(title.position = "top", title = "Número de lotes")) +
+  theme(panel.grid.major.y = element_line(color = "grey83", linetype = "44"),
+        legend.position = c(.23, .85), legend.direction = "horizontal", 
+        legend.title.align = .5,
+        legend.background = element_rect(fill = "white", color = NA))
+```
+
+##### Ventas de las obras de Degas según la fecha de producción y el tema
+       
+Las obras se agrupan en periodos de 5 años y las facetas están ordenadas por número de lotes según el tema. El tamaño muestra la cantidad de obras vendidas. Las obras sin fecha de producción se muestran en la posición '0'.
+
+```{r fig.height=5}
+#themes, production year
+themes <- degas %>%
+  count(theme, sort = TRUE) %>% 
+  extract2("theme")
+
+degas %>%
+  mutate(theme = factor(theme, levels = themes),
+         production_date = if_else(is.na(production_date),
+                                   0, production_date - production_date %% 5),
+         production_date = fct_reorder(factor(production_date), production_date)) %>% 
+  group_by(production_date, theme) %>% 
+  summarise(n = n(), total = sum(price_EUR)) %>% 
+  ggplot(aes(production_date, total, group = 1)) +
+  geom_line(color = "grey80", size = 1) +
+  geom_point(aes(size = n, color = n)) +
+  facet_wrap(~theme, ncol = 2, scales = "free_y") +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), 
+                     expand = c(.2, 2), limits = c(0, NA)) +#, breaks = seq(0, 40e+6, 5e+6)) 
+  scale_x_discrete(breaks = c(0, 1850, 1860, 1870, 1880, 1890, 1900, 1910)) +
+  scale_size_continuous(range = c(1, 6), breaks = c(1, 2, 5, 10, 20, 40)) +
+  scale_color_viridis(option = "plasma", breaks = c(1, 2, 5, 10, 20, 40)) +
+  labs(x = NULL, y = "Ventas (en 1000€)") +
+  guides(size = guide_legend(title.position = "top", title = "Número de lotes"), 
+         color = guide_legend(title.position = "top", title = "Número de lotes")) +
+  theme(legend.position = "bottom", 
+        legend.direction = "horizontal", 
+        legend.title.align = .5,
+        legend.background = element_rect(fill = "white", color = NA),
+        panel.border = element_rect(color = "grey", fill = NA))
+        #axis.text.x = element_text(angle = 40, hjust = 1))
+```
+
+##### Ventas de las obras de Degas según la firma la fecha de producción
+       
+Las obras se agrupan en periodos de 5 años. El tamaño muestra la cantidad de obras vendidas. Las obras sin fecha de producción se muestran en la posición '0'.
+
+```{r}
+# production date, signature
+degas %>%
+  mutate(theme = factor(theme, levels = themes),
+         production_date = if_else(is.na(production_date),
+                                   0, production_date - production_date %% 5),
+         production_date = fct_reorder(factor(production_date), production_date)) %>% 
+  group_by(production_date, signature) %>% 
+  summarise(n = n(), total = sum(price_EUR)) %>% 
+  ggplot(aes(production_date, total, group = 1)) +
+  geom_line() +
+  geom_point(aes(size = n, color = n)) +
+  facet_wrap(~signature, nrow = 3) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+  scale_size_continuous(range = c(1, 8), breaks = c(1, 2, 5, 10, 20, 40)) +
+  scale_color_viridis(option = "plasma", breaks = c(1, 2, 5, 10, 20, 40)) +
+  labs(x = NULL, y = "Ventas (en 1000€)") +
+  guides(size = guide_legend(title.position = "top", title = "Número de lotes"), 
+         color = guide_legend(title.position = "top", title = "Número de lotes")) +
+  theme(legend.position = c(.21, .9), legend.direction = "horizontal", 
+        legend.title.align = .5,
+        legend.background = element_rect(fill = "white", color = NA),
+        panel.border = element_rect(color = "grey", fill = NA))
+```
+
+#### Tema
+
+##### Número de lotes y ventas por tema y técnica
+
+```{r}
+# themes
+degas %>% 
+  group_by(theme, general_technique) %>% 
+  summarise(`Número de lotes` = n(),
+            `Ventas (en 1000 €)` = sum(price_EUR, na.rm = TRUE) * 1e-6) %>%
+  ungroup() %>% 
+  mutate(theme = fct_reorder(theme, `Ventas (en 1000 €)`, sum),
+         general_technique = ifelse(str_detect(general_technique, "resto"), 
+                                    "resto", general_technique)) %>% 
+  gather(variable, value, -theme, -general_technique) %>% 
+  ggplot(aes(theme, value, color = general_technique, group = general_technique)) +
+  geom_line(size = 1, show.legend = FALSE) +
+  geom_point(size = 2) +
+  scale_color_brewer(palette = "Set2") +
+  facet_grid(variable ~ ., scales = "free") +
+  labs(x = NULL, y = NULL, color = NULL) +
+  theme(legend.position = c(.13, .85),
+        panel.border = element_rect(color = "grey", fill = NA),
+        panel.grid.major.x = element_line(color = "grey82", linetype = "44"))
+```
+
+##### Ventas de óleos y dibujos por tema
+
+Ordenado por ventas totales en ambas técnicas.
+
+```{r}
+## themes detail
+degas %>% 
+  filter(general_technique != "pastel") %>% 
+  count(theme, general_technique, wt = price_EUR) %>% 
+  mutate(theme = fct_reorder(theme, n)) %>% 
+  ggplot(aes(theme, n, fill = general_technique)) +
+  geom_col(position = "dodge") +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+  labs(x = NULL, y = NULL, fill = NULL) +
+  theme(legend.position = c(.75, .2)) +
+  coord_flip()
+```
+
+```{r}
+degas %>% 
+  filter(general_technique != "pastel") %>% 
+  group_by(theme, general_technique) %>% 
+  summarise(n = n(), total = sum(price_EUR)) %>% 
+  ungroup() %>% 
+  mutate(theme = factor(theme, levels = c("mujer", "bailarina", "retrato", "estudio/copia",
+                                          "paisaje", "hípica", "otro", "costumbrista")),
+         general_technique = ifelse(str_detect(general_technique, "resto"), 
+                                    "resto", general_technique)) %>%
+  ggplot(aes(theme, total, color = general_technique, group = general_technique)) +
+  geom_line(size = 1, show.legend = FALSE) +
+  geom_point(aes(size = n)) +
+  geom_text(data = . %>% filter(theme == "retrato"),
+            mapping = aes(label = general_technique, x = theme, y = total),
+            nudge_x = .2, hjust = "left", size = 4.5) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3)) +
+  guides(size = guide_legend(direction = "horizontal", title.position = "top"),
+         color = "none") +
+  labs(x = NULL, y = "Ventas (en 1000€)", color = NULL, size = "Número de lotes") +
+  theme(panel.grid.major.x = element_line(color = "grey85"),
+        legend.position = c(.75, .95), legend.background = element_rect(fill = "white", color = NA))
+```
+
+### Relaciones
+
+#### Relación entre el tamaño de la obra y su precio según la técnica
+
+```{r}
+# area vs precio final
+degas %>% 
+  ggplot(aes(area, price_EUR, color = general_technique)) + 
+  geom_point() +
+  geom_smooth(method = "gam", se = FALSE, color = "grey50", linetype = "11", size = 1.2) +
+  geom_smooth(method = "gam", se = FALSE) +
+  #facet_wrap(~ general_technique) +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), trans = "log10") +
+  scale_x_continuous(trans = "log10") +
+  labs(x = "Área", y = "Precio (en 1000€)", color = NULL) +
+  coord_fixed(ratio = .5) +
+  theme(legend.position = "top", 
+        panel.border = element_rect(color = "grey", fill = NA),
+        panel.grid.major = element_line(color = "grey90"))
+```
+
+#### Relación entre el precio final y la diferencia con la estimación.
+
+```{r}
+# diferencia entre los precios y las estimaciones
+degas_predictions %>% 
+  mutate(`Diferencia 1000 €` = estimate_diff * 1e-3,
+         `% de la diferencia` = estimate_diff_perc * 100) %>% 
+  gather(variable, value, `Diferencia 1000 €`, `% de la diferencia`) %>% 
+  ggplot(aes(price_EUR, value)) +
+  geom_point() +
+  geom_smooth(method = "loess") +
+  facet_grid(variable ~ prediction, scales = "free") +
+  scale_x_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), trans = "log10") +
+  scale_y_continuous(trans = "log10") +
+  labs(x = "precio €", y = NULL) +
+  theme(panel.border = element_rect(color = "grey", fill = NA),
+        panel.grid.major = element_line(color = "grey90"))
+
+```
+
+#### Relación entre el precio y la fecha de producción
+
+```{r}
+# Relación entre la fecha de producción y el precio de la obra.
+degas %>% 
+  mutate(production_date = as.Date(paste(production_date, 1, 1, sep = "-"))) %>% 
+  ggplot(aes(production_date, price_EUR, color = general_technique)) +
+  geom_point(size = 2) +
+  geom_smooth(method = "gam", se = FALSE, color = "grey50", linetype = "11", size = 1.2) +
+  geom_smooth(aes(color = general_technique), se = FALSE, size = .6, method = "gam") +
+  scale_y_continuous(labels = scales::unit_format(unit = "K", scale = 1e-3), trans = "log10") +
+  labs(x = "Fecha de producción", y = "Precio (€)", color = "Técnica") +
+  #coord_fixed(ratio = 1) +
+  theme(legend.position = "top", 
+        panel.grid.major = element_line(color = "grey90"),
+        panel.border = element_rect(color = "grey", fill = NA))
+```
+
+#### Relación entre el precio de venta, la fecha de producción y la de venta
+
+```{r}
+degas %>% 
+  mutate(production_date = as.Date(paste(production_date, 1, 1, sep = "-"))) %>% 
+  group_by(date, production_date) %>% 
+  summarise(n = n(), total = sum(price_EUR, na.rm = TRUE)) %>% 
+  ggplot(aes(date, production_date)) +
+  geom_point(aes(size = total, color = total)) +
+  scale_size_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6),
+                        breaks = seq(1e+6, 16e+6, 4e+6)) +
+  scale_color_viridis(option = "plasma", labels = scales::unit_format(unit = "M", scale = 1e-6),
+                     breaks = seq(1e+6, 16e+6, 4e+6)) +
+  labs(y = "Fecha de produccion", x = "Fecha de venta") +
+  guides(size = guide_legend(title = "Precio de venta (€)"),
+         color = guide_legend(title = "Precio de venta (€)")) +
+  theme(legend.position = "top",
+        panel.grid.major = element_line(color = "grey90"),
+        panel.border = element_rect(color = "grey", fill = NA))
+```
+
+#### Relación entre la fecha de producción, el tema, la técnica y el tipo de firma
+
+No incluye las obras cuya fecha de producción es desconocida.
+
+```{r}
+themes_by_price <- degas %>% 
+  count(theme, wt = price_EUR, sort = TRUE) %>% 
+  extract2("theme")
+
+# resumen
+degas %>%
+  mutate(theme = fct_lump(factor(theme, levels = themes_by_price), 4),
+         signature = if_else(is.na(signature), "sin marca", signature),
+         signature = factor(signature, levels = c("sello", "firma", "sin marca")),
+         general_technique = ifelse(str_detect(general_technique, "resto"),
+                                    "resto", general_technique),
+         general_technique = factor(general_technique, levels = c("pastel", "resto", "óleo")),
+         production_date = as.Date(paste(production_date, 1, 1, sep = "-"))) %>% 
+  ggplot(aes(production_date, price_EUR, color = theme)) +
+  geom_point(size = 2) +
+  geom_segment(aes(x = production_date, xend = production_date,
+                   y = 0, yend = price_EUR, color = theme)) +
+  facet_grid(general_technique ~ signature) +
+  scale_x_date(date_breaks = "15 years", date_labels = "%Y", 
+               limits = c(ymd("1855-1-1"), ymd("1915-1-1")), expand = c(.1, .1)) +
+  scale_y_continuous(labels = scales::unit_format(unit = "M", scale = 1e-6), 
+                     expand = c(.1, 0)) +
+  scale_color_brewer(palette = "Paired") +
+  labs(x = NULL, y = "Ventas (en €)", color = "Temas") +
+  theme(legend.position = "bottom", legend.direction = "horizontal", 
+        legend.title.align = .5,
+        legend.background = element_rect(fill = "white", color = NA),
+        panel.border = element_rect(color = "grey80", fill = NA),
+        panel.spacing = unit(0, "mm"))
+```
+
+##
+
+<ht>
+<p style="font-size: 90%; line-height: 1; padding-top: 10px"><a rel="license" href="http://creativecommons.org/licenses/by-nc/4.0/" style="float: left" target="_blank"><img alt="Licencia Creative Commons" style="border-width:0; padding-right: 7px;" src="https://i.creativecommons.org/l/by-nc/4.0/88x31.png" /></a> Esta obra está bajo una <a rel="license" href="http://creativecommons.org/licenses/by-nc/4.0/" target="_blank">Licencia Creative Commons Atribución-NoComercial 4.0 Internacional</a>.</p>
